@@ -1,4 +1,4 @@
-package kinesis
+package firehose
 
 import (
 	"log"
@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/kinesis"
+	"github.com/aws/aws-sdk-go/service/firehose"
 	"github.com/satori/go.uuid"
 
 	"github.com/influxdata/telegraf"
@@ -16,7 +16,7 @@ import (
 )
 
 type (
-	KinesisOutput struct {
+	FirehoseOutput struct {
 		Region    string `toml:"region"`
 		AccessKey string `toml:"access_key"`
 		SecretKey string `toml:"secret_key"`
@@ -25,25 +25,18 @@ type (
 		Filename  string `toml:"shared_credential_file"`
 		Token     string `toml:"token"`
 
-		StreamName         string     `toml:"streamname"`
-		PartitionKey       string     `toml:"partitionkey"`
-		RandomPartitionKey bool       `toml:"use_random_partitionkey"`
-		Partition          *Partition `toml:"partition"`
+		FirehoseName       string     `toml:"firehosename"`
 		Debug              bool       `toml:"debug"`
-		svc                *kinesis.Kinesis
+		svc                *firehose.Firehose
+		// TODO add our error/retry array/slice/thing here.
 
 		serializer serializers.Serializer
-	}
-
-	Partition struct {
-		Method string `toml:"method"`
-		Key    string `toml:"key"`
 	}
 )
 
 var sampleConfig = `
-  ## Amazon REGION of kinesis endpoint.
-  region = "ap-southeast-2"
+  ## Amazon REGION of the AWS firehose endpoint.
+  region = "us-east-2"
 
   ## Amazon Credentials
   ## Credentials are loaded in the following order
@@ -60,35 +53,8 @@ var sampleConfig = `
   #profile = ""
   #shared_credential_file = ""
 
-  ## Kinesis StreamName must exist prior to starting telegraf.
-  streamname = "StreamName"
-  ## DEPRECATED: PartitionKey as used for sharding data.
-  partitionkey = "PartitionKey"
-  ## DEPRECATED: If set the paritionKey will be a random UUID on every put.
-  ## This allows for scaling across multiple shards in a stream.
-  ## This will cause issues with ordering.
-  use_random_partitionkey = false
-  ## The partition key can be calculated using one of several methods:
-  ##
-  ## Use a static value for all writes:
-  #  [outputs.kinesis.partition]
-  #    method = "static"
-  #    key = "howdy"
-  #
-  ## Use a random partition key on each write:
-  #  [outputs.kinesis.partition]
-  #    method = "random"
-  #
-  ## Use the measurement name as the partition key:
-  #  [outputs.kinesis.partition]
-  #    method = "measurement"
-  #
-  ## Use the value of a tag for all writes, if the tag is not set the empty
-  ## string will be used:
-  #  [outputs.kinesis.partition]
-  #    method = "tag"
-  #    key = "host"
-
+  ## Firehose StreamName must exist prior to starting telegraf.
+  firehosename = "FirehoseName"
 
   ## Data format to output.
   ## Each data format has its own unique set of configuration options, read
@@ -100,29 +66,31 @@ var sampleConfig = `
   debug = false
 `
 
-func (k *KinesisOutput) SampleConfig() string {
+func (k *FirehoseOutput) SampleConfig() string {
 	return sampleConfig
 }
 
-func (k *KinesisOutput) Description() string {
-	return "Configuration for the AWS Kinesis output."
+func (k *FirehoseOutput) Description() string {
+	return "Configuration for the AWS Firehose output."
 }
 
-func checkstream(l []*string, s string) bool {
+// Commenting this out because it would be best not to need the list firehoses permission. -Doran
+//
+//func checkstream(l []*string, s string) bool {
 	// Check if the StreamName exists in the slice returned from the ListStreams API request.
-	for _, stream := range l {
-		if *stream == s {
-			return true
-		}
-	}
-	return false
-}
+//	for _, stream := range l {
+//		if *stream == s {
+//			return true
+//		}
+//	}
+//	return false
+//}
 
-func (k *KinesisOutput) Connect() error {
-	// We attempt first to create a session to Kinesis using an IAMS role, if that fails it will fall through to using
+func (k *FirehoseOutput) Connect() error {
+	// We attempt first to create a session to Firehose using an IAMS role, if that fails it will fall through to using
 	// environment variables, and then Shared Credentials.
 	if k.Debug {
-		log.Printf("E! kinesis: Establishing a connection to Kinesis in %+v", k.Region)
+		log.Printf("E! kinesis: Building a session for connection to Firehose in %+v", k.Region)
 	}
 
 	credentialConfig := &internalaws.CredentialConfig{
@@ -135,43 +103,25 @@ func (k *KinesisOutput) Connect() error {
 		Token:     k.Token,
 	}
 	configProvider := credentialConfig.Credentials()
-	svc := kinesis.New(configProvider)
 
-	KinesisParams := &kinesis.ListStreamsInput{
-		Limit: aws.Int64(100),
-	}
-
-	resp, err := svc.ListStreams(KinesisParams)
-
-	if err != nil {
-		log.Printf("E! kinesis: Error in ListSteams API call : %+v \n", err)
-	}
-
-	if checkstream(resp.StreamNames, k.StreamName) {
-		if k.Debug {
-			log.Printf("E! kinesis: Stream Exists")
-		}
-		k.svc = svc
-		return nil
-	} else {
-		log.Printf("E! kinesis : You have configured a StreamName %+v which does not exist. exiting.", k.StreamName)
-		os.Exit(1)
-	}
-	if k.Partition == nil {
-		log.Print("E! kinesis : Deprecated paritionkey configuration in use, please consider using outputs.kinesis.partition")
-	}
-	return err
-}
-
-func (k *KinesisOutput) Close() error {
+	// we simply create the skeleton here. AWS doesn't attempt
+	// any connection yet, so we don't know if an error will happen.
+	svc := firehose.New(configProvider)
+	k.svc = svc
 	return nil
 }
 
-func (k *KinesisOutput) SetSerializer(serializer serializers.Serializer) {
+func (k *FirehoseOutput) Close() error {
+	return nil
+}
+
+func (k *FirehoseOutput) SetSerializer(serializer serializers.Serializer) {
 	k.serializer = serializer
 }
 
-func writekinesis(k *KinesisOutput, r []*kinesis.PutRecordsRequestEntry) time.Duration {
+// TODO this function is where the actual upload happens.
+//      do we also want to do our error handling here? -Doran
+func writefirehose(k *FirehoseOutput, r []*kinesis.PutRecordsRequestEntry) time.Duration {
 	start := time.Now()
 	payload := &kinesis.PutRecordsInput{
 		Records:    r,
@@ -194,33 +144,18 @@ func writekinesis(k *KinesisOutput, r []*kinesis.PutRecordsRequestEntry) time.Du
 	return time.Since(start)
 }
 
-func (k *KinesisOutput) getPartitionKey(metric telegraf.Metric) string {
-	if k.Partition != nil {
-		switch k.Partition.Method {
-		case "static":
-			return k.Partition.Key
-		case "random":
-			u := uuid.NewV4()
-			return u.String()
-		case "measurement":
-			return metric.Name()
-		case "tag":
-			if metric.HasTag(k.Partition.Key) {
-				return metric.Tags()[k.Partition.Key]
-			}
-			log.Printf("E! kinesis : You have configured a Partition using tag %+v which does not exist.", k.Partition.Key)
-		default:
-			log.Printf("E! kinesis : You have configured a Partition method of %+v which is not supported", k.Partition.Method)
-		}
-	}
-	if k.RandomPartitionKey {
-		u := uuid.NewV4()
-		return u.String()
-	}
-	return k.PartitionKey
-}
 
-func (k *KinesisOutput) Write(metrics []telegraf.Metric) error {
+
+// send( errorCount int, metrics []telegraf.Metric )
+//  if there are errors, a new []telegraf.Metric that failed, increase error count by 1, and re-send as batch later.
+
+// errorList[
+//   { errorCount: 1, metrics: [..., ..., ...] },
+//   { errorCount: 2, metrics: [..., ..., ..., ...]} 
+// ]
+
+
+func (k *FirehoseOutput) Write(metrics []telegraf.Metric) error {
 	var sz uint32
 
 	if len(metrics) == 0 {
@@ -228,6 +163,7 @@ func (k *KinesisOutput) Write(metrics []telegraf.Metric) error {
 	}
 
 	r := []*kinesis.PutRecordsRequestEntry{}
+//Doran is here.
 
 	for _, metric := range metrics {
 		sz++
@@ -236,8 +172,6 @@ func (k *KinesisOutput) Write(metrics []telegraf.Metric) error {
 		if err != nil {
 			return err
 		}
-
-		partitionKey := k.getPartitionKey(metric)
 
 		d := kinesis.PutRecordsRequestEntry{
 			Data:         values,
