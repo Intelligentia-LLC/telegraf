@@ -2,12 +2,12 @@ package firehose
 
 import (
 	"log"
-	"os"
+	//"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/firehose"
-	"github.com/satori/go.uuid"
+	//"github.com/satori/go.uuid"
 
 	"github.com/influxdata/telegraf"
 	internalaws "github.com/influxdata/telegraf/internal/config/aws"
@@ -66,11 +66,11 @@ var sampleConfig = `
   debug = false
 `
 
-func (k *FirehoseOutput) SampleConfig() string {
+func (f *FirehoseOutput) SampleConfig() string {
 	return sampleConfig
 }
 
-func (k *FirehoseOutput) Description() string {
+func (f *FirehoseOutput) Description() string {
 	return "Configuration for the AWS Firehose output."
 }
 
@@ -86,59 +86,59 @@ func (k *FirehoseOutput) Description() string {
 //	return false
 //}
 
-func (k *FirehoseOutput) Connect() error {
+func (f *FirehoseOutput) Connect() error {
 	// We attempt first to create a session to Firehose using an IAMS role, if that fails it will fall through to using
 	// environment variables, and then Shared Credentials.
-	if k.Debug {
-		log.Printf("E! kinesis: Building a session for connection to Firehose in %+v", k.Region)
+	if f.Debug {
+		log.Printf("E! firehose: Building a session for connection to Firehose in %+v", f.Region)
 	}
 
 	credentialConfig := &internalaws.CredentialConfig{
-		Region:    k.Region,
-		AccessKey: k.AccessKey,
-		SecretKey: k.SecretKey,
-		RoleARN:   k.RoleARN,
-		Profile:   k.Profile,
-		Filename:  k.Filename,
-		Token:     k.Token,
+		Region:    f.Region,
+		AccessKey: f.AccessKey,
+		SecretKey: f.SecretKey,
+		RoleARN:   f.RoleARN,
+		Profile:   f.Profile,
+		Filename:  f.Filename,
+		Token:     f.Token,
 	}
 	configProvider := credentialConfig.Credentials()
 
 	// we simply create the skeleton here. AWS doesn't attempt
 	// any connection yet, so we don't know if an error will happen.
 	svc := firehose.New(configProvider)
-	k.svc = svc
+	f.svc = svc
 	return nil
 }
 
-func (k *FirehoseOutput) Close() error {
+func (f *FirehoseOutput) Close() error {
 	return nil
 }
 
-func (k *FirehoseOutput) SetSerializer(serializer serializers.Serializer) {
-	k.serializer = serializer
+func (f *FirehoseOutput) SetSerializer(serializer serializers.Serializer) {
+	f.serializer = serializer
 }
 
 // TODO this function is where the actual upload happens.
 //      do we also want to do our error handling here? -Doran
-func writefirehose(k *FirehoseOutput, r []*kinesis.PutRecordsRequestEntry) time.Duration {
+func writeToFirehose(f *FirehoseOutput, r []*firehose.PutRecordsRequestEntry) time.Duration {
 	start := time.Now()
-	payload := &kinesis.PutRecordsInput{
+	payload := &firehose.PutRecordBatchInput{
 		Records:    r,
-		StreamName: aws.String(k.StreamName),
+		StreamName: aws.String(f.StreamName),
 	}
 
-	if k.Debug {
-		resp, err := k.svc.PutRecords(payload)
+	if f.Debug {
+		resp, err := f.svc.PutRecords(payload)
 		if err != nil {
-			log.Printf("E! kinesis: Unable to write to Kinesis : %+v \n", err.Error())
+			log.Printf("E! firehose: Unable to write to Firehose : %+v \n", err.Error())
 		}
 		log.Printf("E! %+v \n", resp)
 
 	} else {
-		_, err := k.svc.PutRecords(payload)
+		_, err := f.svc.PutRecords(payload)
 		if err != nil {
-			log.Printf("E! kinesis: Unable to write to Kinesis : %+v \n", err.Error())
+			log.Printf("E! firehose: Unable to write to Firehose : %+v \n", err.Error())
 		}
 	}
 	return time.Since(start)
@@ -155,25 +155,25 @@ func writefirehose(k *FirehoseOutput, r []*kinesis.PutRecordsRequestEntry) time.
 // ]
 
 
-func (k *FirehoseOutput) Write(metrics []telegraf.Metric) error {
+func (f *FirehoseOutput) Write(metrics []telegraf.Metric) error {
 	var sz uint32
 
 	if len(metrics) == 0 {
 		return nil
 	}
 
-	r := []*kinesis.PutRecordsRequestEntry{}
+	r := []*firehose.PutRecordsRequestEntry{}
 //Doran is here.
 
 	for _, metric := range metrics {
 		sz++
 
-		values, err := k.serializer.Serialize(metric)
+		values, err := f.serializer.Serialize(metric)
 		if err != nil {
 			return err
 		}
 
-		d := kinesis.PutRecordsRequestEntry{
+		d := firehose.PutRecordsRequestEntry{
 			Data:         values,
 			PartitionKey: aws.String(partitionKey),
 		}
@@ -182,23 +182,23 @@ func (k *FirehoseOutput) Write(metrics []telegraf.Metric) error {
 
 		if sz == 500 {
 			// Max Messages Per PutRecordRequest is 500
-			elapsed := writekinesis(k, r)
-			log.Printf("E! Wrote a %+v point batch to Kinesis in %+v.\n", sz, elapsed)
+			elapsed := writeToFirehose(f, r)
+			log.Printf("E! Wrote a %+v point batch to Firehose in %+v.\n", sz, elapsed)
 			sz = 0
 			r = nil
 		}
 
 	}
 	if sz > 0 {
-		elapsed := writekinesis(k, r)
-		log.Printf("E! Wrote a %+v point batch to Kinesis in %+v.\n", sz, elapsed)
+		elapsed := writeToFirehose(f, r)
+		log.Printf("E! Wrote a %+v point batch to Firehose in %+v.\n", sz, elapsed)
 	}
 
 	return nil
 }
 
 func init() {
-	outputs.Add("kinesis", func() telegraf.Output {
-		return &KinesisOutput{}
+	outputs.Add("firehose", func() telegraf.Output {
+		return &FirehosOutput{}
 	})
 }
