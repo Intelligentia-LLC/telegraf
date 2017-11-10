@@ -53,7 +53,7 @@ var sampleConfig = `
   #shared_credential_file = ""
 
   ## Firehose StreamName must exist prior to starting telegraf.
-  firehosename = "FirehoseName"
+  delivery_stream_name = "FirehoseName"
 
   ## Data format to output.
   ## Each data format has its own unique set of configuration options, read
