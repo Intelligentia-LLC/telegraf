@@ -5,7 +5,6 @@ import (
 	//"os"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/firehose"
 	//"github.com/satori/go.uuid"
 
@@ -25,7 +24,7 @@ type (
 		Filename  string `toml:"shared_credential_file"`
 		Token     string `toml:"token"`
 
-		FirehoseName       string     `toml:"firehosename"`
+		DeliveryStreamName       string     `toml:"delivery_stream_name"`
 		Debug              bool       `toml:"debug"`
 		svc                *firehose.Firehose
 		// TODO add our error/retry array/slice/thing here.
@@ -74,17 +73,6 @@ func (f *FirehoseOutput) Description() string {
 	return "Configuration for the AWS Firehose output."
 }
 
-// Commenting this out because it would be best not to need the list firehoses permission. -Doran
-//
-//func checkstream(l []*string, s string) bool {
-	// Check if the StreamName exists in the slice returned from the ListStreams API request.
-//	for _, stream := range l {
-//		if *stream == s {
-//			return true
-//		}
-//	}
-//	return false
-//}
 
 func (f *FirehoseOutput) Connect() error {
 	// We attempt first to create a session to Firehose using an IAMS role, if that fails it will fall through to using
@@ -120,31 +108,25 @@ func (f *FirehoseOutput) SetSerializer(serializer serializers.Serializer) {
 }
 
 // TODO this function is where the actual upload happens.
-//      do we also want to do our error handling here? -Doran
-func writeToFirehose(f *FirehoseOutput, r []*firehose.PutRecordsRequestEntry) time.Duration {
+// do we also want to do our error handling here? -Doran
+func writeToFirehose(f *FirehoseOutput, r []*firehose.Record) time.Duration {
 	start := time.Now()
-	payload := &firehose.PutRecordBatchInput{
-		Records:    r,
-		StreamName: aws.String(f.StreamName),
-	}
+	batchInput := &firehose.PutRecordBatchInput{}
+	batchInput.SetDeliveryStreamName(f.DeliveryStreamName)
+	batchInput.SetRecords(r)
 
+	req, resp := f.svc.PutRecordBatchRequest(batchInput)
+	err := req.Send()
+
+	if err != nil {
+		log.Printf("E! firehose: Unable to write to Firehose : %+v \n", err.Error())
+	}
 	if f.Debug {
-		resp, err := f.svc.PutRecords(payload)
-		if err != nil {
-			log.Printf("E! firehose: Unable to write to Firehose : %+v \n", err.Error())
-		}
 		log.Printf("E! %+v \n", resp)
 
-	} else {
-		_, err := f.svc.PutRecords(payload)
-		if err != nil {
-			log.Printf("E! firehose: Unable to write to Firehose : %+v \n", err.Error())
-		}
 	}
 	return time.Since(start)
 }
-
-
 
 // send( errorCount int, metrics []telegraf.Metric )
 //  if there are errors, a new []telegraf.Metric that failed, increase error count by 1, and re-send as batch later.
@@ -154,7 +136,6 @@ func writeToFirehose(f *FirehoseOutput, r []*firehose.PutRecordsRequestEntry) ti
 //   { errorCount: 2, metrics: [..., ..., ..., ...]} 
 // ]
 
-
 func (f *FirehoseOutput) Write(metrics []telegraf.Metric) error {
 	var sz uint32
 
@@ -162,9 +143,7 @@ func (f *FirehoseOutput) Write(metrics []telegraf.Metric) error {
 		return nil
 	}
 
-	r := []*firehose.PutRecordsRequestEntry{}
-//Doran is here.
-
+	r := []*firehose.Record{}
 	for _, metric := range metrics {
 		sz++
 
@@ -173,9 +152,8 @@ func (f *FirehoseOutput) Write(metrics []telegraf.Metric) error {
 			return err
 		}
 
-		d := firehose.PutRecordsRequestEntry{
+		d := firehose.Record{
 			Data:         values,
-			PartitionKey: aws.String(partitionKey),
 		}
 
 		r = append(r, &d)
@@ -199,6 +177,6 @@ func (f *FirehoseOutput) Write(metrics []telegraf.Metric) error {
 
 func init() {
 	outputs.Add("firehose", func() telegraf.Output {
-		return &FirehosOutput{}
+		return &FirehoseOutput{}
 	})
 }
