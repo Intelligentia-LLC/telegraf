@@ -2,12 +2,9 @@ package firehose
 
 import (
 	"log"
-	//"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/firehose"
-	//"github.com/satori/go.uuid"
-
 	"github.com/influxdata/telegraf"
 	internalaws "github.com/influxdata/telegraf/internal/config/aws"
 	"github.com/influxdata/telegraf/plugins/outputs"
@@ -64,6 +61,9 @@ var sampleConfig = `
   ## Firehose StreamName must exist prior to starting telegraf.
   delivery_stream_name = "FirehoseName"
 
+  ## The maximum number of times to attempt resubmitting a single metric 
+  max_submit_attempts
+
   ## Data format to output.
   ## Each data format has its own unique set of configuration options, read
   ## more about them here:
@@ -116,9 +116,8 @@ func (f *FirehoseOutput) SetSerializer(serializer serializers.Serializer) {
 	f.serializer = serializer
 }
 
-// TODO this function is where the actual upload happens.
-// do we also want to do our error handling here? -Doran
-func writeToFirehose(f *FirehoseOutput, r []*firehose.Record, submitAttemptCount int64) time.Duration {
+// This function is where the actual upload happens.
+func writeToFirehose(f *FirehoseOutput, r []*firehose.Record, submitAttemptCount int64) {
 	start := time.Now()
 	batchInput := &firehose.PutRecordBatchInput{}
 	batchInput.SetDeliveryStreamName(f.DeliveryStreamName)
@@ -140,30 +139,25 @@ func writeToFirehose(f *FirehoseOutput, r []*firehose.Record, submitAttemptCount
 
 	// if we have a partial failure- issue a warning and then enqueue only the messages that failed
 	if *resp.FailedPutCount > 0 {
-		log.Printf("W! firehose: failed to write %n out of %n Telegraf metrics\n", resp.FailedPutCount, len(r))
 
 		errorMetrics := make([]*firehose.Record, *resp.FailedPutCount)
 		for index, entry := range resp.RequestResponses {
-			if *entry.ErrorCode != "" {
+			//log.Printf(*entry.ErrorCode)
+			if entry.ErrorCode != nil {
 				errorMetrics = append(errorMetrics, r[index])
 			}
 		}
 
 		newErrorEntry := errorEntry{submitAttemptCount: submitAttemptCount + 1, batch: errorMetrics}
+		log.Printf("W! firehose: failed to write %d out of %d Telegraf metrics in %+v\n", len(errorMetrics), len(r) , time.Since(start))
 		f.errorBuffer = append(f.errorBuffer, &newErrorEntry)
+	} else {
+		log.Printf("I! firehose: successfully sent %d Telegraf metrics in %+v\n", len(r), time.Since(start))
 	}
 
-	return time.Since(start)
 }
 
-// send( errorCount int, metrics []telegraf.Metric )
-//  if there are errors, a new []telegraf.Metric that failed, increase error count by 1, and re-send as batch later.
-
-// errorList[
-//   { errorCount: 1, metrics: [..., ..., ...] },
-//   { errorCount: 2, metrics: [..., ..., ..., ...]} 
-// ]
-
+// TODO doc
 func (f *FirehoseOutput) Write(metrics []telegraf.Metric) error {
 	var sz uint32
 
@@ -192,21 +186,22 @@ func (f *FirehoseOutput) Write(metrics []telegraf.Metric) error {
 		d := firehose.Record{
 			Data:         values,
 		}
+		if f.Debug {
+			log.Println(d)
+			log.Println(metric)
+		}
 
 		r = append(r, &d)
 
 		if sz == 500 {
 			// Max Messages Per PutRecordRequest is 500
-			elapsed := writeToFirehose(f, r, 0)
-			log.Printf("E! Wrote a %+v point batch to Firehose in %+v.\n", sz, elapsed)
+			writeToFirehose(f, r, 0)
 			sz = 0
 			r = nil
 		}
-
 	}
 	if sz > 0 {
-		elapsed := writeToFirehose(f, r, 0)
-		log.Printf("E! Wrote a %+v point batch to Firehose in %+v.\n", sz, elapsed)
+		writeToFirehose(f, r, 0)
 	}
 
 	return nil

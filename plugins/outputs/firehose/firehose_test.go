@@ -2,76 +2,30 @@ package firehose
 
 import (
 	"testing"
+	"fmt"
 
-	"github.com/influxdata/telegraf/testutil"
-	uuid "github.com/satori/go.uuid"
-	"github.com/stretchr/testify/assert"
+	//"github.com/influxdata/telegraf/testutil"
+	//uuid "github.com/satori/go.uuid"
+	//"github.com/stretchr/testify/assert"
 )
+g
+func TestWriteToFirehoseAllFail(t *testing.T) {
+	f := FirehoseOutput{}
+	fmt.Println(f.DeliveryStreamName)
+}
 
-func TestPartitionKey(t *testing.T) {
+func TestWriteToFirehoseSomeFail(t *testing.T) {
 
-	/*assert := assert.New(t)
-	testPoint := testutil.TestMetric(1)
+}
 
-	k := KinesisOutput{
-		Partition: &Partition{
-			Method: "static",
-			Key:    "-",
-		},
-	}
-	assert.Equal("-", k.getPartitionKey(testPoint), "PartitionKey should be '-'")
+func TestWriteToFirehoseSuccess(t *testing.T) {
 
-	k = KinesisOutput{
-		Partition: &Partition{
-			Method: "tag",
-			Key:    "tag1",
-		},
-	}
-	assert.Equal(testPoint.Tags()["tag1"], k.getPartitionKey(testPoint), "PartitionKey should be value of 'tag1'")
+}
 
-	k = KinesisOutput{
-		Partition: &Partition{
-			Method: "tag",
-			Key:    "doesnotexist",
-		},
-	}
-	assert.Equal("", k.getPartitionKey(testPoint), "PartitionKey should be value of ''")
+func TestWriteLessThan500Records(t *testing.T) {
 
-	k = KinesisOutput{
-		Partition: &Partition{
-			Method: "not supported",
-		},
-	}
-	assert.Equal("", k.getPartitionKey(testPoint), "PartitionKey should be value of ''")
+}
 
-	k = KinesisOutput{
-		Partition: &Partition{
-			Method: "measurement",
-		},
-	}
-	assert.Equal(testPoint.Name(), k.getPartitionKey(testPoint), "PartitionKey should be value of measurement name")
-
-	k = KinesisOutput{
-		Partition: &Partition{
-			Method: "random",
-		},
-	}
-	partitionKey := k.getPartitionKey(testPoint)
-	u, err := uuid.FromString(partitionKey)
-	assert.Nil(err, "Issue parsing UUID")
-	assert.Equal(uint(4), u.Version(), "PartitionKey should be UUIDv4")
-
-	k = KinesisOutput{
-		PartitionKey: "-",
-	}
-	assert.Equal("-", k.getPartitionKey(testPoint), "PartitionKey should be '-'")
-
-	k = KinesisOutput{
-		RandomPartitionKey: true,
-	}
-	partitionKey = k.getPartitionKey(testPoint)
-	u, err = uuid.FromString(partitionKey)
-	assert.Nil(err, "Issue parsing UUID")
-	assert.Equal(uint(4), u.Version(), "PartitionKey should be UUIDv4")*/
+func TestWrite500Records(t *testing.T) {
 
 }
