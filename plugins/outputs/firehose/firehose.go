@@ -15,6 +15,13 @@ import (
 )
 
 type (
+	errorEntry struct {
+		retryCount int
+		batch []telegraf.Metric
+	}
+)
+
+type (
 	FirehoseOutput struct {
 		Region    string `toml:"region"`
 		AccessKey string `toml:"access_key"`
@@ -27,7 +34,7 @@ type (
 		DeliveryStreamName       string     `toml:"delivery_stream_name"`
 		Debug              bool       `toml:"debug"`
 		svc                *firehose.Firehose
-		// TODO add our error/retry array/slice/thing here.
+		errorBuffer        []errorEntry
 
 		serializer serializers.Serializer
 	}
@@ -114,7 +121,7 @@ func writeToFirehose(f *FirehoseOutput, r []*firehose.Record) time.Duration {
 	batchInput := &firehose.PutRecordBatchInput{}
 	batchInput.SetDeliveryStreamName(f.DeliveryStreamName)
 	batchInput.SetRecords(r)
-
+	
 	req, resp := f.svc.PutRecordBatchRequest(batchInput)
 	err := req.Send()
 
@@ -123,7 +130,17 @@ func writeToFirehose(f *FirehoseOutput, r []*firehose.Record) time.Duration {
 	}
 	if f.Debug {
 		log.Printf("E! %+v \n", resp)
-
+	}
+	
+	metricCount := len(r)
+	if *resp.FailedPutCount > 0 {
+		log.Printf("W! firehose: failed to write %n out of %n Telegraf metrics\n", resp.FailedPutCount, metricCount)
+	}
+	errorMetrics := make([]*firehose.Record, *resp.FailedPutCount)
+	for index, entry := range resp.RequestResponses {
+		if entry.ErrorCode != "" {
+			append(errorMetrics, r[index])
+		}
 	}
 	return time.Since(start)
 }
