@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/firehose"
+	"github.com/aws/aws-sdk-go/service/firehose/firehoseiface"
 	"github.com/influxdata/telegraf"
 	internalaws "github.com/influxdata/telegraf/internal/config/aws"
 	"github.com/influxdata/telegraf/plugins/outputs"
@@ -32,7 +33,7 @@ type (
 		Debug              bool       `toml:"debug"`
 		MaxSubmitAttempts  int64      `toml:"max_submit_attempts"`
 
-		svc                *firehose.Firehose
+		svc                firehoseiface.FirehoseAPI
 		errorBuffer        []*errorEntry
 
 		serializer serializers.Serializer
@@ -124,8 +125,7 @@ func writeToFirehose(f *FirehoseOutput, r []*firehose.Record, submitAttemptCount
 	batchInput.SetRecords(r)
 
 	// attempt to send data to firehose
-	req, resp := f.svc.PutRecordBatchRequest(batchInput)
-	err := req.Send()
+	resp, err := f.svc.PutRecordBatch(batchInput)
 
 	// if we had a total failure, log it and enqueue the request for next time 
 	if err != nil {
