@@ -3,8 +3,9 @@ package firehose
 import (
 	"testing"
 	"fmt"
-
-	"github.com/aws/aws-sdk-go/aws/request"
+//	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/influxdata/telegraf"
+	"github.com/influxdata/telegraf/testutil"
 	"github.com/aws/aws-sdk-go/service/firehose"
 	"github.com/aws/aws-sdk-go/service/firehose/firehoseiface"
 	//"github.com/influxdata/telegraf/testutil"
@@ -13,30 +14,40 @@ import (
 )
 
 //req, resp := f.svc.PutRecordBatchRequest(batchInput)
-
 type mockFirehose struct {
 	firehoseiface.FirehoseAPI
-	Resp firehose.PutRecordBatchOutput
+	numErrors int64
+}
+
+type mockMetrics struct {
+	numLines int64
 }
 
 // Overriding this here so we can do unit testing of firehose puts without
 // actually engaging the AWS API
-func (m *mockFirehose) PutRecordBatch(input *firehose.PutRecordBatchInput) (output *firehose.PutRecordBatchOutput, error) {
+func (m mockFirehose) PutRecordBatch(input *firehose.PutRecordBatchInput) (output *firehose.PutRecordBatchOutput, err error) {
 	emptyString := ""
 	recordId := "ljq33ah4tlkjk34"
 
-	var zero int64 = 0
+	var zero int64 = m.numErrors
 
 	entry := firehose.PutRecordBatchResponseEntry{ErrorCode: &emptyString, ErrorMessage: &emptyString, RecordId: &recordId}
-	reqOutput := new request.Request{}
 	batchOutput := firehose.PutRecordBatchOutput{FailedPutCount: &zero, RequestResponses: []*firehose.PutRecordBatchResponseEntry{&entry}}
-	return &reqOutput, &batchOutput
+	return &batchOutput, nil
 }
 
-//func TestWriteToFirehoseAllFail(t *testing.T) {
-//	f := FirehoseOutput{}
-//	fmt.Println(f.DeliveryStreamName)
-//}
+func (m mockLines) generateLines() (lines []telegraf.Metric, err error) {
+	err = nil
+	lines = testutil.MockMetrics()
+	lines = append(lines, testutil.TestMetric(1.0))
+}
+
+func TestWriteToFirehoseAlliSuccess(t *testing.T) {
+	f := FirehoseOutput{}
+	f.svc = mockFirehose{numErrors: 0}
+	fmt.Println(f.DeliveryStreamName)
+}
+
 //
 //func TestWriteToFirehoseSomeFail(t *testing.T) {
 //
