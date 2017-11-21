@@ -16,36 +16,52 @@ import (
 //req, resp := f.svc.PutRecordBatchRequest(batchInput)
 type mockFirehose struct {
 	firehoseiface.FirehoseAPI
-	numErrors int64
-}
 
-type mockMetrics struct {
-	numLines int64
+	// test values
+	expectedLines int64
+	numOfPuts int64  // tracks the number of times PutRecordBatch was called
+
+	// reaction values
+	numErrors int64
 }
 
 // Overriding this here so we can do unit testing of firehose puts without
 // actually engaging the AWS API
 func (m mockFirehose) PutRecordBatch(input *firehose.PutRecordBatchInput) (output *firehose.PutRecordBatchOutput, err error) {
+	m.numOfPuts++
+
 	emptyString := ""
-	recordId := "ljq33ah4tlkjk34"
 
 	var zero int64 = m.numErrors
+	// TODO insert the errors.
+	// TODO check for the number of expected lines
 
-	entry := firehose.PutRecordBatchResponseEntry{ErrorCode: &emptyString, ErrorMessage: &emptyString, RecordId: &recordId}
+	entry := firehose.PutRecordBatchResponseEntry{ErrorCode: &emptyString, ErrorMessage: &emptyString, RecordId: &emptyString}
 	batchOutput := firehose.PutRecordBatchOutput{FailedPutCount: &zero, RequestResponses: []*firehose.PutRecordBatchResponseEntry{&entry}}
 	return &batchOutput, nil
 }
 
-func (m mockLines) generateLines() (lines []telegraf.Metric, err error) {
+func generateLines(numLines int) (lines []telegraf.Metric, err error) {
 	err = nil
 	lines = testutil.MockMetrics()
-	lines = append(lines, testutil.TestMetric(1.0))
+
+	// generate 1 less line then specified since
+	// the MockMetrics line returns a line when generated
+	for i := 0; i < (numLines-1); i++ {
+		lines = append(lines, testutil.TestMetric(1.0))
+	}
+	return
 }
 
-func TestWriteToFirehoseAlliSuccess(t *testing.T) {
+func TestWriteToFirehoseAllSuccess(t *testing.T) {
 	f := FirehoseOutput{}
 	f.svc = mockFirehose{numErrors: 0}
-	fmt.Println(f.DeliveryStreamName)
+
+	generatedLines, err := generateLines(10)
+	if err == nil {
+		f.Write(generatedLines)
+	}
+	fmt.Println(f.svc.numOfPuts)
 }
 
 //
