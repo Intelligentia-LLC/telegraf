@@ -23,10 +23,11 @@ type mockFirehose struct {
 
 	// test values
 	expectedLines int64
-	numOfPuts int64  // tracks the number of times PutRecordBatch was called
+	numErrors int64
 
 	// reaction values
-	numErrors int64
+  errorsHandled bool // tracks when the errors have finished being injected
+  numOfPuts int64    // tracks the number of times PutRecordBatch was called
 }
 
 // Overriding this here so we can do unit testing of firehose puts without
@@ -37,35 +38,36 @@ func (m *mockFirehose) PutRecordBatch(input *firehose.PutRecordBatchInput) (outp
 	code := "42"
   message := "Deliberate Error!"
   errCount := m.numErrors
-
+  // insert errors
   var entry firehose.PutRecordBatchResponseEntry
   var responses []*firehose.PutRecordBatchResponseEntry
+
+
+  // create responses for output and process errors
   for index, element := range input.Records {
     recordID++
-    if index < errCount {
+    if m.errorsRemain && index < errCount {
       // inserting errors at first for specified error count
       entry = firehose.PutRecordBatchResponseEntry{ ErrorCode: &code,
                                                     ErrorMessage: &message }
     } else {
+      m.errorsRemain = false
       idString := strconv.Itoa(recordID)
-      entry = firehose.PutRecordBatchResponseEntry{ RecordId: idString }
+      entry = firehose.PutRecordBatchResponseEntry{ RecordId: &idString }
     }
     responses = append(responses, &entry)
   }
-	// TODO check for the number of expected lines
-  if m.expectedLines > 500 {
-    if numOfPuts > m.expectedLines / 500 {
-      
-    }
-  }
 
+  // TODO check for correct number of lines
+  //
 
   batchOutput := firehose.PutRecordBatchOutput{ FailedPutCount: &errCount,
                                                 RequestResponses: &responses }
   err = nil
-  if errCount > 0 {
-    err = errors.New("Deliberate Errors Inserted")
+  if errCount - (500 * (m.numOfPuts - 1)) >= 500 {
+    err = errors.New("Total Failure Simulated")
   }
+
 	return &batchOutput, err
 }
 
@@ -87,7 +89,7 @@ func mockRun(N int, E int64) error {
     return errors.New("More errors than records")
   }
   f := FirehoseOutput{}
-	f.svc = mockFirehose{ numErrors: E }
+	f.svc = mockFirehose{ numErrors: E, errorsRemain: true }
   s, err := serializers.NewInfluxSerializer()
   if err == nil {
     f.SetSerializer(s)
