@@ -3,11 +3,11 @@ package firehose
 import (
 	"testing"
 	"fmt"
-  "strconv"
+	"strconv"
 	//"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/influxdata/telegraf"
 	"github.com/influxdata/telegraf/testutil"
-  "github.com/influxdata/telegraf/plugins/serializers"
+	"github.com/influxdata/telegraf/plugins/serializers"
 	"github.com/aws/aws-sdk-go/service/firehose"
 	"github.com/aws/aws-sdk-go/service/firehose/firehoseiface"
 	//uuid "github.com/satori/go.uuid"
@@ -26,8 +26,8 @@ type mockFirehose struct {
 	numErrors int64
 
 	// reaction values
-  errorsHandled bool // tracks when the errors have finished being injected
-  numOfPuts int64    // tracks the number of times PutRecordBatch was called
+	errorsHandled bool // tracks when the errors have finished being injected
+	numOfPuts int64    // tracks the number of times PutRecordBatch was called
 }
 
 // Overriding this here so we can do unit testing of firehose puts without
@@ -36,37 +36,37 @@ func (m *mockFirehose) PutRecordBatch(input *firehose.PutRecordBatchInput) (outp
 	m.numOfPuts++
 
 	code := "42"
-  message := "Deliberate Error!"
-  errCount := m.numErrors
-  // insert errors
-  var entry firehose.PutRecordBatchResponseEntry
-  var responses []*firehose.PutRecordBatchResponseEntry
+	message := "Deliberate Error!"
+	errCount := m.numErrors
+	// insert errors
+	var entry firehose.PutRecordBatchResponseEntry
+	var responses []*firehose.PutRecordBatchResponseEntry
 
 
-  // create responses for output and process errors
-  for index, element := range input.Records {
-    recordID++
-    if m.errorsRemain && index < errCount {
-      // inserting errors at first for specified error count
-      entry = firehose.PutRecordBatchResponseEntry{ ErrorCode: &code,
-                                                    ErrorMessage: &message }
-    } else {
-      m.errorsRemain = false
-      idString := strconv.Itoa(recordID)
-      entry = firehose.PutRecordBatchResponseEntry{ RecordId: &idString }
-    }
-    responses = append(responses, &entry)
-  }
+	// create responses for output and process errors
+	for index, element := range input.Records {
+		recordID++
+		if m.errorsRemain && index < errCount {
+			// inserting errors at first for specified error count
+			entry = firehose.PutRecordBatchResponseEntry{ ErrorCode: &code,
+														  ErrorMessage: &message }
+		} else {
+			m.errorsRemain = false
+			idString := strconv.Itoa(recordID)
+			entry = firehose.PutRecordBatchResponseEntry{ RecordId: &idString }
+		}
+		responses = append(responses, &entry)
+	}
 
-  // TODO check for correct number of lines
-  //
+	// TODO check for correct number of lines
+	//
 
-  batchOutput := firehose.PutRecordBatchOutput{ FailedPutCount: &errCount,
+	batchOutput := firehose.PutRecordBatchOutput{ FailedPutCount: &errCount,
                                                 RequestResponses: &responses }
-  err = nil
-  if errCount - (500 * (m.numOfPuts - 1)) >= 500 {
-    err = errors.New("Total Failure Simulated")
-  }
+	err = nil
+	if errCount - (500 * (m.numOfPuts - 1)) >= 500 {
+		err = errors.New("Total Failure Simulated")
+	}
 
 	return &batchOutput, err
 }
@@ -85,40 +85,40 @@ func generateLines(numLines int) (lines []telegraf.Metric, err error) {
 
 //
 func mockRun(N int, E int64) error {
-  if E > N {
-    return errors.New("More errors than records")
-  }
-  f := FirehoseOutput{}
+	if E > N {
+		return errors.New("More errors than records")
+	}
+	f := FirehoseOutput{}
 	f.svc = mockFirehose{ numErrors: E, errorsRemain: true }
-  s, err := serializers.NewInfluxSerializer()
-  if err == nil {
-    f.SetSerializer(s)
-  }
-  else {
-    t.Fail(err)
-    return err
-  }
-  generatedLines, err := generateLines(N)
+	s, err := serializers.NewInfluxSerializer()
+	if err == nil {
+		f.SetSerializer(s)
+	}
+	else {
+		t.Fail(err)
+		return err
+	}
+	generatedLines, err := generateLines(N)
 	if err == nil {
 		err = f.Write(generatedLines)
-    if err != nil {
-      t.Fail(err)
-      return err
-    }
+		if err != nil {
+			t.Fail(err)
+			return err
+		}
 	}
-  else {
-    t.Fail(err)
-    return err
-  }
-  return nil
+	else {
+		t.Fail(err)
+		return err
+	}
+	return nil
 }
 
 // to be removed; reimplemented in suite function below
 func TestWriteToFirehoseAllSuccess(t *testing.T) {
 	err := mockRun(10,0)
-  if err != nil {
-    t.Fail(err)
-  }
+	if err != nil {
+		t.Fail(err)
+	}
 }
 
 // func TestWriteRecords(t *testing.T) {
