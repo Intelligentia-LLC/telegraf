@@ -53,15 +53,12 @@ func (m *mockFirehose) PutRecordBatch(input *firehose.PutRecordBatchInput) (outp
     responses = append(responses, &entry)
   }
 	// TODO check for the number of expected lines
+  if m.expectedLines > 500 {
+    if numOfPuts > m.expectedLines / 500 {
+      
+    }
+  }
 
-
-  // artifacts from single implementation
-	// entry := firehose.PutRecordBatchResponseEntry{ ErrorCode: &emptyString,
-  //                                                ErrorMessage: &emptyString,
-  //                                                RecordId: &emptyString }
-  //
-	// batchOutput := firehose.PutRecordBatchOutput{ FailedPutCount: &errCount,
-  //                                               RequestResponses: []*firehose.PutRecordBatchResponseEntry{ &entry } }
 
   batchOutput := firehose.PutRecordBatchOutput{ FailedPutCount: &errCount,
                                                 RequestResponses: &responses }
