@@ -3,6 +3,7 @@ package firehose
 import (
 	"testing"
 	"fmt"
+  "strconv"
 	//"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/influxdata/telegraf"
 	"github.com/influxdata/telegraf/testutil"
@@ -12,6 +13,9 @@ import (
 	//uuid "github.com/satori/go.uuid"
 	//"github.com/stretchr/testify/assert"
 )
+
+// primary key spoof
+recordID := 0
 
 //req, resp := f.svc.PutRecordBatchRequest(batchInput)
 type mockFirehose struct {
@@ -30,20 +34,42 @@ type mockFirehose struct {
 func (m *mockFirehose) PutRecordBatch(input *firehose.PutRecordBatchInput) (output *firehose.PutRecordBatchOutput, err error) {
 	m.numOfPuts++
 
-	emptyString := ""
+	code := "42"
+  message := "Deliberate Error!"
+  errCount := m.numErrors
 
-	var zero int64 = m.numErrors
-	// TODO insert the errors.
-
+  var entry firehose.PutRecordBatchResponseEntry
+  var responses []*firehose.PutRecordBatchResponseEntry
+  for index, element := range input.Records {
+    recordID++
+    if index < errCount {
+      // inserting errors at first for specified error count
+      entry = firehose.PutRecordBatchResponseEntry{ ErrorCode: &code,
+                                                    ErrorMessage: &message }
+    } else {
+      idString := strconv.Itoa(recordID)
+      entry = firehose.PutRecordBatchResponseEntry{ RecordId: idString }
+    }
+    responses = append(responses, &entry)
+  }
 	// TODO check for the number of expected lines
 
-	entry := firehose.PutRecordBatchResponseEntry{ ErrorCode: &emptyString,
-                                                 ErrorMessage: &emptyString,
-                                                 RecordId: &emptyString }
 
-	batchOutput := firehose.PutRecordBatchOutput{ FailedPutCount: &zero,
-                                                RequestResponses: []*firehose.PutRecordBatchResponseEntry{ &entry } }
-	return &batchOutput, nil
+  // artifacts from single implementation
+	// entry := firehose.PutRecordBatchResponseEntry{ ErrorCode: &emptyString,
+  //                                                ErrorMessage: &emptyString,
+  //                                                RecordId: &emptyString }
+  //
+	// batchOutput := firehose.PutRecordBatchOutput{ FailedPutCount: &errCount,
+  //                                               RequestResponses: []*firehose.PutRecordBatchResponseEntry{ &entry } }
+
+  batchOutput := firehose.PutRecordBatchOutput{ FailedPutCount: &errCount,
+                                                RequestResponses: &responses }
+  err = nil
+  if errCount > 0 {
+    err = errors.New("Deliberate Errors Inserted")
+  }
+	return &batchOutput, err
 }
 
 func generateLines(numLines int) (lines []telegraf.Metric, err error) {
@@ -58,7 +84,7 @@ func generateLines(numLines int) (lines []telegraf.Metric, err error) {
 	return
 }
 
-// TODO implement deliberate errors with PutRecordBatch
+//
 func mockRun(N int, E int64) error {
   if E > N {
     return errors.New("More errors than records")
