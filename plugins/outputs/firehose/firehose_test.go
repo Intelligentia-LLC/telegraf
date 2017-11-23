@@ -48,8 +48,9 @@ func (m *mockFirehose) PutRecordBatch(input *firehose.PutRecordBatchInput) (outp
 		recordID++
 		if m.errorsRemain && index < errCount {
 			// inserting errors at first for specified error count
-			entry = firehose.PutRecordBatchResponseEntry{ ErrorCode: &code,
-														  ErrorMessage: &message }
+			entry = firehose.PutRecordBatchResponseEntry{
+				ErrorCode: &code,
+				ErrorMessage: &message }
 		} else {
 			m.errorsRemain = false
 			idString := strconv.Itoa(recordID)
@@ -84,11 +85,10 @@ func generateLines(numLines int) (lines []telegraf.Metric, err error) {
 }
 
 //
-func mockRun(N int, E int64) error {
+func mockRun(f *FirehoseOutput, N int, E int64) error {
 	if E > N {
 		return errors.New("More errors than records")
 	}
-	f := FirehoseOutput{}
 	f.svc = mockFirehose{ numErrors: E, errorsRemain: true }
 	s, err := serializers.NewInfluxSerializer()
 	if err == nil {
@@ -115,21 +115,27 @@ func mockRun(N int, E int64) error {
 
 // to be removed; reimplemented in suite function below
 func TestWriteToFirehoseAllSuccess(t *testing.T) {
-	err := mockRun(10,0)
+	f := FirehoseOutput{}
+	err := mockRun(f,10,0)
 	if err != nil {
 		t.Fail(err)
 	}
 }
 
-// func TestWriteRecords(t *testing.T) {
-//   t.Run("writes"), func(t *testing.T) {
-//     t.Run("N=1",    func(t *testing.T) { mockRun(1,0) })      // one record, no failures
-//     t.Run("N=500",  func(t *testing.T) { mockRun(500,0) })    // 500 records, no failures
-//     t.Run("N=1000", func(t *testing.T) { mockRun(1000,0) })   // >500 records, no failures
-//   }
-//   t.Run("retries"), func(t *testing.T) {
-//     t.Run("E=1",    func(t *testing.T) { mockRun(1,1) })      // 1 record, all failures
-//     t.Run("E=2",    func(t *testing.T) { mockRun(2,1) })      // multiple records, one failure
-//     t.Run("E=N",    func(t *testing.T) { mockRun(2,2) })      // multiple records, all failures
-//   }
-//}
+func TestWriteRecords(t *testing.T) {
+	// create shared firehose output
+	f := FirehoseOutput{}
+	// TODO create tests that share f (via errorBuffer)
+
+	// obsolete test cases
+	// t.Run("writes"), func(t *testing.T) {
+	// 	t.Run("N=1",    func(t *testing.T) { mockRun(f,1,0) })      // one record, no failures
+	// 	t.Run("N=500",  func(t *testing.T) { mockRun(f,500,0) })    // 500 records, no failures
+	// 	t.Run("N=1000", func(t *testing.T) { mockRun(f,1000,0) })   // >500 records, no failures
+	// }
+	// t.Run("retries"), func(t *testing.T) {
+	// 	t.Run("E=1",    func(t *testing.T) { mockRun(f,1,1) })      // 1 record, all failures
+	// 	t.Run("E=2",    func(t *testing.T) { mockRun(f,2,1) })      // multiple records, one failure
+	// 	t.Run("E=N",    func(t *testing.T) { mockRun(f,2,2) })      // multiple records, all failures
+	// }
+}
