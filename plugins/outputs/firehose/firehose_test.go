@@ -1,21 +1,23 @@
 package firehose
 
 import (
-	"testing"
+	"errors"
 	"fmt"
+	"log"
 	"strconv"
+	"testing"
 	//"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/influxdata/telegraf"
 	"github.com/influxdata/telegraf/testutil"
 	"github.com/influxdata/telegraf/plugins/serializers"
 	"github.com/aws/aws-sdk-go/service/firehose"
 	"github.com/aws/aws-sdk-go/service/firehose/firehoseiface"
-	//uuid "github.com/satori/go.uuid"
 	//"github.com/stretchr/testify/assert"
+	//uuid "github.com/satori/go.uuid"
 )
 
 // primary key spoof
-recordID := 0
+var recordID int = 0
 
 //req, resp := f.svc.PutRecordBatchRequest(batchInput)
 type mockFirehose struct {
@@ -26,13 +28,19 @@ type mockFirehose struct {
 	numErrors int64
 
 	// reaction values
-	errorsHandled bool // tracks when the errors have finished being injected
+	errorsRemain bool  // tracks when the errors have finished being injected
 	numOfPuts int64    // tracks the number of times PutRecordBatch was called
 }
 
 // Overriding this here so we can do unit testing of firehose puts without
 // actually engaging the AWS API
+// TODO check for only <=500 records. This doesn't have access to t *testing.T
+// so this check may need to happen higher up the execution chain via m.numOfPuts
+// since errors (err) are eaten by the caller writeToFirehose
 func (m *mockFirehose) PutRecordBatch(input *firehose.PutRecordBatchInput) (output *firehose.PutRecordBatchOutput, err error) {
+	if len(input.Records) > 500 {
+		log.Printf("E! firehose_test: got more than 500 in a batch")
+	}
 	m.numOfPuts++
 
 	code := "42"
@@ -46,7 +54,7 @@ func (m *mockFirehose) PutRecordBatch(input *firehose.PutRecordBatchInput) (outp
 	// create responses for output and process errors
 	for index, element := range input.Records {
 		recordID++
-		if m.errorsRemain && index < errCount {
+		if m.errorsRemain && int64(index) < errCount {
 			// inserting errors at first for specified error count
 			entry = firehose.PutRecordBatchResponseEntry{
 				ErrorCode: &code,
@@ -59,19 +67,17 @@ func (m *mockFirehose) PutRecordBatch(input *firehose.PutRecordBatchInput) (outp
 		responses = append(responses, &entry)
 	}
 
-	// TODO check for correct number of lines
-	//
+	batchOutput := firehose.PutRecordBatchOutput{ FailedPutCount: &errCount, RequestResponses: responses }
 
-	batchOutput := firehose.PutRecordBatchOutput{ FailedPutCount: &errCount,
-                                                RequestResponses: &responses }
-	err = nil
 	if errCount - (500 * (m.numOfPuts - 1)) >= 500 {
+		// simulated error, eaten by writeToFirehose (calling function)
 		err = errors.New("Total Failure Simulated")
 	}
 
 	return &batchOutput, err
 }
 
+// TODO is err needed? check MockMetrics?
 func generateLines(numLines int) (lines []telegraf.Metric, err error) {
 	err = nil
 	lines = testutil.MockMetrics()
@@ -85,57 +91,57 @@ func generateLines(numLines int) (lines []telegraf.Metric, err error) {
 }
 
 //
-func mockRun(f *FirehoseOutput, N int, E int64) error {
-	if E > N {
+func mockRun(f *FirehoseOutput, N int, E int64) (err error) {
+	if E > int64(N) {
 		return errors.New("More errors than records")
 	}
-	f.svc = mockFirehose{ numErrors: E, errorsRemain: true }
+	f.svc = mockFirehose{ numErrors: E, errorsRemain: true } // want bool(E)
 	s, err := serializers.NewInfluxSerializer()
-	if err == nil {
-		f.SetSerializer(s)
+	if err != nil {
+		return
 	}
-	else {
-		t.Fail(err)
-		return err
-	}
+	f.SetSerializer(s)
 	generatedLines, err := generateLines(N)
-	if err == nil {
-		err = f.Write(generatedLines)
-		if err != nil {
-			t.Fail(err)
-			return err
-		}
+	if err != nil {
+		return
 	}
-	else {
-		t.Fail(err)
-		return err
-	}
-	return nil
+	err = f.Write(generatedLines)
 }
 
-// to be removed; reimplemented in suite function below
-func TestWriteToFirehoseAllSuccess(t *testing.T) {
-	f := FirehoseOutput{}
-	err := mockRun(f,10,0)
+func checkBuffer(f *FirehoseOutput, E int64) (err error) {
+	count := len(f.errorBuffer)
+	if count != E {
+		err = errors.New(fmt.Sprintf("Got buffer length of %d, expected %d", count, E))
+	}
+}
+
+func testWrapper(t *testing.T, f *FirehoseOutput, N int, E int64) {
+	err = mockRun(f, N, E) // run one and total fail
+	if err != nil {
+		t.Fail(err)
+	}
+	err = checkBuffer(f, E)
 	if err != nil {
 		t.Fail(err)
 	}
 }
 
-func TestWriteRecords(t *testing.T) {
-	// create shared firehose output
+// to be removed; reimplemented in suite function below
+func TestWriteToFirehoseAllSuccess(t *testing.T) {
 	f := FirehoseOutput{}
-	// TODO create tests that share f (via errorBuffer)
-
-	// obsolete test cases
-	// t.Run("writes"), func(t *testing.T) {
-	// 	t.Run("N=1",    func(t *testing.T) { mockRun(f,1,0) })      // one record, no failures
-	// 	t.Run("N=500",  func(t *testing.T) { mockRun(f,500,0) })    // 500 records, no failures
-	// 	t.Run("N=1000", func(t *testing.T) { mockRun(f,1000,0) })   // >500 records, no failures
-	// }
-	// t.Run("retries"), func(t *testing.T) {
-	// 	t.Run("E=1",    func(t *testing.T) { mockRun(f,1,1) })      // 1 record, all failures
-	// 	t.Run("E=2",    func(t *testing.T) { mockRun(f,2,1) })      // multiple records, one failure
-	// 	t.Run("E=N",    func(t *testing.T) { mockRun(f,2,2) })      // multiple records, all failures
-	// }
+	testWrapper(t, f, 10, 0)
 }
+
+//
+// func TestWriteRecords(t *testing.T) {
+// 	// create shared firehose output
+// 	//f := FirehoseOutput{}
+// 	// TODO create tests that share f (via errorBuffer)
+// 	t.Run("simple_total", func(t *testing.T) {
+// 		f := FirehoseOutput{}
+// 		testWrapper(t, f, 1, 1)
+// 		testWrapper(t, f, 2, 1)
+// 		testWrapper(t, f, 0, 0)
+// 	}
+//
+// }
